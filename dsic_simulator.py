@@ -1,56 +1,57 @@
 import random
+from itertools import product
 
-# DSIC Parameters
-NUM_STUDENTS = 10        # total number of students (k)
-EPSILON = 0.5            # acceptable error margin
-P = 60                   # parameter chosen for penalty scaling
-M = 60                   # maximum slope of g(x)/max penalty
-LAMBDA = 2 * M / P       # lambda coefficient used in the penalty function
-BETA = 2 * M / P         # beta coefficient used in the penalty function
-ALPHA = 1 / NUM_STUDENTS # weighting for self-report in the aggregate score
+# DSIC Parameters (Constants)
+NUM_STUDENTS = 10        # Total number of students (k)
+EPSILON = 0.9            # Acceptable error margin
+P = 2.5                  # Penalty constant (must be > 2)
+ALPHA = 1 / NUM_STUDENTS # Weight placed on the self-report in the aggregated score
 
+# Grading Function:
+#   if x >= 5: grade = 35 + 8 * x
+#   if 2 <= x < 5: grade = 50 + 5 * x
+#   if x < 2: grade = 60
 def grading_function(x):
-
-    if x >= 3:
-        return 30 + 10 * x
-    elif x >= 1:
-        return 60
+    if x >= 5:
+        return 35 + 8 * x
+    elif x >= 2:
+        return 50 + 5 * x
     else:
-        return 60 * x
+        return 60
 
-def compute_penalty(report_value, true_value, epsilon, lambda_val, beta, is_self):
+def compute_penalty(report_value, true_value, epsilon, penalty_const, is_self):
     error = abs(report_value - true_value)
     if error <= epsilon:
         return 0
     else:
-        penalty = lambda_val * (error - epsilon) ** 2
+        penalty = penalty_const * ((error - epsilon) ** 2)
         if is_self:
-            penalty += beta * report_value
+            penalty += penalty_const * report_value
         return penalty
 
-def simulate_single_week(num_students, honesty_prob=0.5, bias_self=1.5, bias_other=1.0, seed=None):
+def simulate_single_week(num_students, honesty_prob=0.5, bias_self=2, bias_other=2, seed=None):
     if seed is not None:
         random.seed(seed)
     
-    true_contributions = [random.uniform(0, 10) for _ in range(num_students)]
+    true_contributions = [random.randint(0, 10) for _ in range(num_students)]
+    
     student_types = [random.random() < honesty_prob for _ in range(num_students)]
-    reports = [[0.0 for _ in range(num_students)] for _ in range(num_students)]
+
+    reports = [[0 for _ in range(num_students)] for _ in range(num_students)]
     penalties = [0.0 for _ in range(num_students)]
     
     for i in range(num_students):
         for j in range(num_students):
-            if student_types[i]:
-                report_value = true_contributions[j]
-            else:
-                if i == j:
-                    report_value = min(10, true_contributions[j] + bias_self)
+            if i == j:
+                if student_types[i]:
+                    report_value = true_contributions[j]
                 else:
-                    report_value = max(0, true_contributions[j] - bias_other)
+                    report_value = min(10, true_contributions[j] + bias_self)
+            else:
+                report_value = true_contributions[j]
             reports[i][j] = report_value
-            
             is_self = (i == j)
-            pen = compute_penalty(report_value, true_contributions[j], EPSILON, LAMBDA, BETA, is_self)
-            penalties[i] += pen
+            penalties[i] += compute_penalty(report_value, true_contributions[j], EPSILON, P, is_self)
     
     aggregated = []
     for j in range(num_students):
@@ -61,7 +62,6 @@ def simulate_single_week(num_students, honesty_prob=0.5, bias_self=1.5, bias_oth
         aggregated.append(x_j)
     
     preliminary_grades = [grading_function(x) for x in aggregated]
-    
     final_grades = [max(0, min(100, preliminary_grades[i] - penalties[i])) for i in range(num_students)]
     
     results = []
@@ -76,13 +76,12 @@ def simulate_single_week(num_students, honesty_prob=0.5, bias_self=1.5, bias_oth
             "penalty": penalties[i],
             "final_grade": final_grades[i]
         })
-        
     return results
 
-def simulate_multiple_weeks(num_iterations=1000, num_students=10, honesty_prob=0.5, bias_self=1.5, bias_other=1.0):
+def simulate_multiple_weeks(num_iterations=1000, num_students=10, honesty_prob=0.5, bias_self=2, bias_other=2):
     """
-    Run the simulation for many weeks (iterations) and compute the average final grades 
-    for honest versus dishonest students.
+    Simulate many weeks and compute average final grades
+    for honest and dishonest students.
     """
     all_results = []
     for _ in range(num_iterations):
@@ -94,15 +93,70 @@ def simulate_multiple_weeks(num_iterations=1000, num_students=10, honesty_prob=0
     
     avg_honest = sum(honest_grades) / len(honest_grades) if honest_grades else 0
     avg_dishonest = sum(dishonest_grades) / len(dishonest_grades) if dishonest_grades else 0
-    
     return avg_honest, avg_dishonest, all_results
 
-if __name__ == "__main__":
-    NUM_ITERATIONS = 1000 # number of iterations/"weeks"
-    HONESTY_PROB = 0.5    # 50% of students are honest
-    BIAS_SELF = 1.5       # Dishonest students inflate their own contributions by 1.5 units
-    BIAS_OTHER = 1.0      # Dishonest students deflate others' contributions by 1.0 units
+def print_sample_scenario(contribution, bias_self=2, bias_other=2):
+    dishonest_self = min(10, contribution + bias_self)
+    penalty = compute_penalty(dishonest_self, contribution, EPSILON, P, True)
     
+    honest_grade = grading_function(contribution)
+    inflated_grade = grading_function(dishonest_self) - penalty
+    
+    print(f"True contribution: {contribution}")
+    print(f"Honest peer report: {contribution}")
+    print(f"Dishonest self-report (inflated): {dishonest_self}")
+    print(f"Grade if reported honestly: {honest_grade:.1f}")
+    print(f"Grade if self-inflated: {inflated_grade:.1f}")
+
+def check_truth_optimality():
+    """
+    For every possible true contribution (v = 0 to 10) of the target student,
+    and for teams of size 7 and 8, verify that reporting truthfully
+    yields at least as high a final grade as reporting any inflated value.
+    Peers are assumed to be accurate, meaning that each peer reports exactly v.
+    """
+    truth_optimal = True
+    eps = 1e-9  # tolerance
+
+    for v in range(0, 11):
+        for k in [7, 8]:
+            alpha_val = 1.0 / k
+            avg_peer = v
+            aggregated_truthful = alpha_val * v + (1 - alpha_val) * avg_peer
+            truthful_grade = grading_function(aggregated_truthful)
+            truthful_grade = min(100, truthful_grade)
+            for r in range(v + 1, 11):
+                aggregated_inflated = alpha_val * r + (1 - alpha_val) * v
+                penalty = compute_penalty(r, v, EPSILON, P, True)
+                inflated_grade = grading_function(aggregated_inflated) - penalty
+                inflated_grade = min(100, inflated_grade)
+                if inflated_grade > truthful_grade + eps:
+                    print("Counterexample found:",
+                          f"true value = {v}, group size = {k},",
+                          f"inflated report = {r}, aggregated_inflated = {aggregated_inflated:.4f},",
+                          f"inflated_grade = {inflated_grade:.4f}, truthful_grade = {truthful_grade:.4f}")
+                    truth_optimal = False
+    return truth_optimal
+
+if __name__ == "__main__":
+    is_truth_optimal = check_truth_optimality()
+    print("\nTruth Optimality:", "True" if is_truth_optimal else "False")
+
+    print("\nExample 1: High Contributor (8/10)")
+    print_sample_scenario(8)
+
+    print("\nExample 2: Medium Contributor (5/10)")
+    print_sample_scenario(5)
+
+    print("\nExample 3: Low Contributor (2/10)")
+    print_sample_scenario(2)
+
+    print("\nFull Simulation Results:")
+    NUM_ITERATIONS = 1000 # Number of iterations (weeks)
+    HONESTY_PROB = 0.5    # 50% honest students
+    BIAS_SELF = 2         # Dishonest self-inflation by 2 units
+    BIAS_OTHER = 2        # (Unused in this simulation)
+
     avg_honest, avg_dishonest, _ = simulate_multiple_weeks(
         num_iterations=NUM_ITERATIONS,
         num_students=NUM_STUDENTS,
@@ -110,22 +164,7 @@ if __name__ == "__main__":
         bias_self=BIAS_SELF,
         bias_other=BIAS_OTHER
     )
-    
-    print("DSIC Reporting Scheme Simulation Results (over {} iterations):".format(NUM_ITERATIONS))
+
+    print("\nDSIC Reporting Scheme Simulation Results (over {} iterations):".format(NUM_ITERATIONS))
     print("Average final grade for HONEST students:   {:.2f}".format(avg_honest))
     print("Average final grade for DISHONEST students: {:.2f}".format(avg_dishonest))
-    
-    print("\nSample Report for one week:")
-    sample_results = simulate_single_week(NUM_STUDENTS, HONESTY_PROB, BIAS_SELF, BIAS_OTHER, seed=42)
-    for res in sample_results:
-        strategy = "Honest" if res["honest"] else "Dishonest"
-        print("Student {0:2d} ({1}): True Contribution = {2:5.2f}, Self Report = {3:5.2f}, Aggregated = {4:5.2f}, Preliminary Grade = {5:5.2f}, Penalty = {6:5.2f}, Final Grade = {7:5.2f}".format(
-            res["student"],
-            strategy,
-            res["true_contribution"],
-            res["self_report"],
-            res["aggregated"],
-            res["preliminary_grade"],
-            res["penalty"],
-            res["final_grade"]
-        ))
