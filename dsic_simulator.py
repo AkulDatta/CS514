@@ -3,8 +3,8 @@ import random
 # DSIC Parameters
 NUM_STUDENTS = 10        # total number of students (k)
 EPSILON = 0.5            # acceptable error margin
-P = 20                   # parameter chosen for penalty scaling
-M = 20                   # maximum slope of g(x)/max penalty
+P = 60                   # parameter chosen for penalty scaling
+M = 60                   # maximum slope of g(x)/max penalty
 LAMBDA = 2 * M / P       # lambda coefficient used in the penalty function
 BETA = 2 * M / P         # beta coefficient used in the penalty function
 ALPHA = 1 / NUM_STUDENTS # weighting for self-report in the aggregate score
